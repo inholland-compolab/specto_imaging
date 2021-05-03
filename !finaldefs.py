@@ -1,40 +1,48 @@
 from PIL import Image
 from PIL import ImageFilter
+from PIL import ImageChops
 import time
+import os
 
-#import numpy as np
+import numpy as np
 
 ########    Input from user interface    ########
 
 # Process control user interface
 state = "layercolour"
 
-
 # Values
-rgb1= [150,161,147]
-rgb2= [30,100,160]
-rgb3= [116,131,128]
-rgb4= [120,124,102]
+filter_list = {
+    'filter0': (128, 128, 128, 20),
+    'filter1': (128, 128, 128, 20),
+    'filter2': (128, 128, 128, 20),
+    'filter3': (128, 128, 128, 20),
+    'filter4': (128, 128, 128, 20),
+    'filter5': (128, 128, 128, 20) # composite layer
+}
+
+print()
+
+rgbs = [list(i) for i in filter_list.values()]
+
+rgb = []
+cal = []
+for code in rgbs:
+    rgb.append(code[:3])
+    cal.append(code[3])
+
+print(rgb)
+print(cal)
 
 rgbstop, calstop = [24,30,30], 20
 rgbnogo, calnogo = [129,123,1], 20
 
-cal1,cal2,cal3,cal4 = 35,20,-1,-1
-
-maxL = 4
 layertreshold = 0.8
 
-
 # Images
-image = Image.open("Face 1.jpg").convert("RGB")
-mask1 = Image.open("background.png").convert("RGB")
-mask2 = Image.open("manual.png").convert("RGB")
-
-
-# Variable merging into one Global variable
-rgb = [rgb1,rgb2,rgb3,rgb4]
-cal = [cal1,cal2,cal3,cal4]
-
+image = Image.open(os.path.dirname(os.path.realpath(__file__)) + r"\Face 6.jpg").convert("RGB")
+mask1 = Image.open(os.path.dirname(os.path.realpath(__file__)) + r"\background.png").convert("RGB")
+mask2 = Image.open(os.path.dirname(os.path.realpath(__file__)) + r"\manual.png").convert("RGB")
 
 # First setup start values
 totalL = 0
@@ -42,11 +50,8 @@ sideL = [1,0,0,0,0,0]
 side = 0
 fs = 0
 
-
 # Determine ammount of used layers
-for i in range(0,(maxL)):
-    if (cal[i]>0):
-        totalL = totalL + 1
+totalL = len(filter_list)
 
 print ("Active layers:"+str(totalL))
 
@@ -63,23 +68,20 @@ def overlap(imageA,imageB):
     buffer_blend = Image.blend(imageA, imageB, alpha=0.5)    
 
     #   Operation to each pixel
-    overlaped = buffer_blend.point(lambda i: (i - 254)*255 )
+    overlaped = buffer_blend.point(lambda i: (i==255) * 255)
 
     return overlaped
 
 
 def combine(imageA,imageB):     
     # Making sure image is in Grayscale   
-    imageA = imageA.convert('L')    
-    imageB = imageB.convert('L')
+    imageA = imageA.convert('1')    
+    imageB = imageB.convert('1')
 
     #   Alpha-blend the images
-    buffer_blend = Image.blend(imageA, imageB, alpha=0.5)    
+    combined = ImageChops.logical_or(imageA, imageB)    
 
-    #   Operation to each pixel
-    combined = buffer_blend.point(lambda i: (i)*4 )
-
-    return combined
+    return combined.convert('L')
 
 
 def invert(image1): 
@@ -87,7 +89,7 @@ def invert(image1):
     img = image1.convert('L')
 
     # Inverting the images
-    imginvert = img.point(lambda i: 255-i)
+    imginvert = img.point(lambda i: (not i) * 255)
     return imginvert
 
 
@@ -104,45 +106,31 @@ def radius(image1,runs):
     return filterApplied
 
 #not finished
-def mask(image1,colours,ranges):
+def mask(image1,colour,sens):
     # Split the red, green and blue bands from the Image     
     multiBands      = image1.split()
 
-    #
-    n1,n2,n3 = colours[0],colours[1],colours[2]
+    n1,n2,n3 = colour
 
     # ERROR COULD ACCUR HERE IF THE IMAGE DOES NOT HAVE ENOUGH BANDS  
     # Apply point operations that does thresholding on each color band
-    redBand      = multiBands[0].point(lambda i: i > (n1-ranges) and i < (n1+ranges))
-
-    greenBand    = multiBands[1].point(lambda i: i > (n2-ranges) and i < (n2+ranges))
-
-    blueBand     = multiBands[2].point(lambda i: i > (n3-ranges) and i < (n3+ranges))    
-    
-    # Maximise brightness  (making sure all pictures are as expected)
-    redBand      = redBand.point(lambda i: i*255)
-
-    greenBand    = greenBand.point(lambda i: i*255)
-
-    blueBand     = blueBand.point(lambda i: i*255)
+    redBand      = multiBands[0].point(lambda i: (i > (n1-sens) and i < (n1+sens)) * 255).convert('1')
+    greenBand    = multiBands[1].point(lambda i: (i > (n2-sens) and i < (n2+sens)) * 255).convert('1')
+    blueBand     = multiBands[2].point(lambda i: (i > (n3-sens) and i < (n3+sens)) * 255).convert('1')
 
     # Combining all alpha bands to one picture
-    buffer1 = Image.blend(redBand, greenBand, alpha=0.5)
-    buffer2 = Image.blend(buffer1, blueBand, alpha=0.5)
+    buffer = ImageChops.logical_and(redBand, greenBand)
+    buffer = ImageChops.logical_and(buffer, blueBand)
 
-    #buffer10 = Image.merge("RGB", (redBand, greenBand, blueBand))
-    #buffer10.show()
+    #buffer_merge = Image.merge("RGB", (redBand, greenBand, blueBand))
+    # buffer10.show()
 
     # Create a new image from the thresholded and combined red, green and blue brands (changing picture from Alpha to "RGB")
-    buffer3 = Image.merge("RGB", (buffer2, buffer2, buffer2))
+    buffer = buffer.convert('L')
+    buffer = Image.merge("RGB", (buffer, buffer, buffer))
+    buffer = buffer.convert("L")
 
-    # Converting to Grayscale
-    buffer4 = buffer3.convert("L")
-
-    # Leaving only complete white
-    mask = buffer4.point(lambda i: (i-254)*255)
-
-    return mask
+    return buffer
 
 def blur(image1,runs,conectivity,intensity,threshold):
     # Making sure image is in Grayscale   
@@ -164,14 +152,12 @@ def blur(image1,runs,conectivity,intensity,threshold):
 
     return filterApplied
 
-
 # Temperarely to allow for working of script
 def percentage(image1):
     return 0.7
 
-
 # Setting the active and previous GO Colours for sanding
-def SetLayer(image1,comp):
+def SetLayer(image1, comp):
     # Check current layer
     layerbuffer = sideL[side]
 
@@ -184,15 +170,15 @@ def SetLayer(image1,comp):
         # Check if last layer
         if (layerbuffer == totalL):
             # Count amount of final layers completed in a row
-            comp = comp + 1
+            comp += 1
            
             # CONTINUE TO NEXT SIDE
             gotonext = True
             print ("side completed, proceed to next side (Total in row finished:"+str(fs))
-            return layerbuffer, gotonext, fs
+            return layerbuffer, gotonext, comp
 
         # Setting the working layer to the next layer    
-        layerbuffer = layerbuffer + 1        
+        layerbuffer += 1        
 
         # Setting value to continue to next layer after setting all variables
         gotonext = True
@@ -202,7 +188,6 @@ def SetLayer(image1,comp):
     else:
         gotonext = False
 
-    
     return layerbuffer, gotonext, comp
 
 ########################################################
@@ -245,7 +230,7 @@ while fs <= 6:
         GoColour2 = mask(image,RGBPrev,CalPrev)
         GoColour2 = blur(GoColour2,1,1,20,48)
         GoColour2 = radius(GoColour2,0)
-        GoColour2.show()
+        #GoColour2.show()
 
         # STOP COLOUR MASK
         # (WILL BE DEFENITION THAT DOES THE SAME THING FOR ALL COLOURSSPACES)
@@ -266,9 +251,7 @@ while fs <= 6:
         GoColour = radius(GoColour,0)
         #GoColour.show()
 
-
-
-        FinalImg = overlap(mask1,GoColour)
+        FinalImg = overlap(image,mask1)
         FinalImg.save("GOZONE.png","PNG")
         #FinalImg.show()
 
@@ -324,7 +307,7 @@ while fs <= 6:
     # Waiting for sanding to be finished or until new image???
     if state == "sanding":
         print("sanding")
-
+        break
 
     # All sides finished return to user interface
     if state == "finished":
